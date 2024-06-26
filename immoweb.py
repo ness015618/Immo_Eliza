@@ -68,11 +68,14 @@ def get_data_region(session,url,dataset_from_site):
                     price = (pr1+pr2)/2
                 # print(type.find("GROUP"), type)
                 if type.find("GROUP") == -1:
-                    dataset_from_site["sqmeter2"].append(sqm)
-                    dataset_from_site["type"].append(type)
-                    dataset_from_site["price"].append(price)
-                    dataset_from_site["district"].append(district)
-                    dataset_from_site["bedroomCount"].append(bedroomCount)
+                    # print(sqm)
+                    if sqm != None or sqm != 0:
+                        dataset_from_site["sqmeter2"].append(sqm)
+                        dataset_from_site["type"].append(type)
+                        dataset_from_site["price"].append(price)
+                        dataset_from_site["district"].append(district)
+                        dataset_from_site["bedroomCount"].append(bedroomCount)
+
                 
                 # print("price -----",price)
                 
@@ -142,7 +145,7 @@ def get_data_all():
             page +=1
             
             # if page >= 3: break
-        if city == 'gent': break    
+        # if city == 'gent': break    
     return
 
 def save(leaders):
