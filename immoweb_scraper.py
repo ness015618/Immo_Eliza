@@ -7,6 +7,7 @@ class ImmowebScraper:
     def __init__(self):
         self.headers = {}
         self.session = requests.Session()
+        self.properties = []
 
 
     # Functions to get property data
@@ -19,23 +20,41 @@ class ImmowebScraper:
     def get_locality(self, window_classified_dict):
         return window_classified_dict['property']['location'].get('locality', 'None')
     
-    def get_price(self, window_classified_dict):
-        window_classified_dict['transaction']['sale']['price']
+    def get_price(self, window_classified_dict): # to correct
+        if window_classified_dict['transaction']['sale']['price']:
+            price = window_classified_dict['transaction']['sale']['price']
+        else:
+            min_price = window_classified_dict['price']['minRangeValue']
+            max_price = window_classified_dict['price']['maxRangeValue']
+            price = (min_price + max_price)/2
+        return price
     
     def get_sale_type(self, window_classified_dict):
         return window_classified_dict['transaction']['subtype']
     
     def get_bedroom_count(self, window_classified_dict):
-        return window_classified_dict['property']['bedroomCount']
+        if window_classified_dict['property']['bedroomCount']:
+            bedroom_count = window_classified_dict['property']['bedroomCount']
+        else:
+            bedroom_count = "None"
+        return bedroom_count
     
     def get_living_area(self, window_classified_dict):
-        return window_classified_dict['property']['netHabitableSurface']
+        if window_classified_dict['property']['netHabitableSurface']:
+            living_area = window_classified_dict['property']['netHabitableSurface']
+        else:
+            living_area = "None"
+        return living_area
   
     def get_equipped_kitchen(self, window_classified_dict):
         equipped_kitchen = False
-        if window_classified_dict['property']['kitchen']['type'] == "INSTALLED": # !!!!! verify other options
-            equipped_kitchen = True
+        try:
+            if window_classified_dict['property']['kitchen']['type'] == "INSTALLED": # check other options
+                equipped_kitchen = True
+        except TypeError:
+            equipped_kitchen = False
         return equipped_kitchen
+
     
     def get_is_furnished(self, window_classified_dict):
         is_furnished = False
@@ -58,7 +77,10 @@ class ImmowebScraper:
     def get_terrace_area(self, window_classified_dict):
         terrace_area = 0
         if window_classified_dict['property']['hasTerrace'] == True:
-            terrace_area = window_classified_dict['property']['terraceSurface']
+            if window_classified_dict['property']['terraceSurface']:
+                terrace_area = window_classified_dict['property']['terraceSurface']
+            else:
+                terrace_area = "None"
         return terrace_area
     
     def get_garden(self, window_classified_dict):
@@ -77,12 +99,19 @@ class ImmowebScraper:
         try: 
             plot_surface = window_classified_dict['property']['land']['surface']
         except TypeError:
-            plot_surface = None
+            plot_surface = "None"
         return plot_surface
     
     def get_nb_facades(self, window_classified_dict):
-        return window_classified_dict['property']['building'].get('facadeCount', 0)
-    
+        try : 
+            if window_classified_dict['property']['building']['facadeCount']:
+                nb_facades = window_classified_dict['property']['building']['facadeCount']
+            else:
+                nb_facades = "None"
+        except TypeError:
+            nb_facades = "None"
+        return nb_facades
+
     def get_swimming_pool(self, window_classified_dict):
         has_swimming_pool = False
         if window_classified_dict['property']['hasSwimmingPool'] == True:
@@ -90,9 +119,11 @@ class ImmowebScraper:
         return has_swimming_pool
     
     def get_building_state(self, window_classified_dict):
-        return window_classified_dict['property']['building'].get('condition', "")
-
-
+        try : 
+            condition = window_classified_dict['property']['building']['condition']
+        except TypeError:
+             condition = "None"
+        return condition
 
     def extract_json_from_function(self, data):
         """
@@ -133,8 +164,6 @@ class ImmowebScraper:
         return property_dataset
         
 
-
-
     def get_data_from_page(self, url):
         """
         Was used to get data from click, but we need to change to take urls from research page
@@ -159,14 +188,35 @@ class ImmowebScraper:
                 except json.JSONDecodeError as e:
                     print("organize file failed -", e)
 
+    def get_property_urls(self, url):
+        content = self.session.get(url, headers=self.headers).text
+        soup = BeautifulSoup(content, 'html.parser')
+        property_urls = []
+        
+        results = soup.find_all('div', class_='card--result__body')
+        for result in results:
+            link = result.find('a', href=True)
+            if link:
+                property_url = link['href']
+                property_urls.append(property_url)
+        
+        return property_urls
 
-
+    def find_window_classified(self, property_url):
+        response = self.session.get(property_url, headers=self.headers)
+        if response.status_code == 200:
+            content = response.text
+            soup = BeautifulSoup(content, 'html.parser')
+            window_classified = soup.find("script",type="text/javascript").text
+            clean_window_classified = self.extract_json_from_function(window_classified)
+            window_classified_dict = json.loads(clean_window_classified)
+        return window_classified_dict
+    
     def scrape(self):
         """ 
         We start with this
         call get_data_from_page
         """
-        
         
         self.headers = {
         'User-Agent': 'My Agent',
@@ -176,17 +226,41 @@ class ImmowebScraper:
         self.session.headers.update(self.headers)
         
         #url = "https://www.immoweb.be/en/classified/house/for-sale/nassogne/6950/11485698"
-        url = "https://www.immoweb.be/en/classified/apartment/for-sale/lier/2500/20000906"
-        content = self.session.get(url).text
-        soup = BeautifulSoup(content, 'html.parser')
-        window_classified = soup.find("script",type="text/javascript").text
-        #print(window_classified) # Debugging
-        clean_window_classified = self.extract_json_from_function(window_classified)
+        #url = "https://www.immoweb.be/en/classified/apartment/for-sale/lier/2500/20000906"
+        page = 1
+        base_url = f"https://www.immoweb.be/en/search/house-and-apartment/for-sale?countries=BE&page={page}&orderBy=relevance"
+        for page in range(1,334):
+            page_url = base_url.format(page)
+            try:
+                response = self.session.get(page_url)
+                if response.status_code == 200:
+                    property_urls = self.get_property_urls(page_url)
+                    #print(property_urls, len(property_urls)) # Debugging
+                    for property_url in property_urls:
+                        window_classified_dict = self.find_window_classified(property_url)
+                        #print(json.dumps(window_classified_dict, indent=4)) # Debugging
+                        property_dataset = self.get_property_data(window_classified_dict)
+                        self.properties.append(property_dataset)
+                        #print(property_dataset) # Debugging
+                    print(f"Page {page} processed successfully.")    
+                else:
+                    print(f"Error with status code {response.status_code} on page {page}.")
+                    break
+            except requests.exceptions.RequestException as e:
+                print(f"Request error on page {page}: {e}")    
+        
+        df = pd.DataFrame(self.properties)
+        df.to_csv('immoweb_data.csv', index=False, sep=';')
+                        
+        #print(property_urls, len(property_urls)) # Dubugging
+        #window_classified = soup.find("script",type="text/javascript").text
+        
+        #clean_window_classified = self.extract_json_from_function(window_classified)
         #print(clean_window_classified) # Debugging
-        window_classified_dict = json.loads(clean_window_classified)
+        #window_classified_dict = json.loads(clean_window_classified)
         #print("window_classified_dict WITH COMFORTABLE VIEW : \n", json.dumps(window_classified_dict, indent=4)) # Debugging
-        property_dataset = self.get_property_data(window_classified_dict)
-        print(property_dataset)
+        #property_dataset = self.get_property_data(window_classified_dict)
+        #print(property_dataset)
         
         """
         base_url = 'https://www.immoweb.be/en/search/house-and-apartment/for-sale?countries=BE&priceType=SALE_PRICE&page=1&orderBy=relevance{}'
