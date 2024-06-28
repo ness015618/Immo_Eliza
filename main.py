@@ -1,9 +1,9 @@
-import immoweb
+import immoweb_scraper
 
 def main():
     print("main------------")
 
-    immoweb.get_data_all()
+    immoweb_scraper.get_data_all()
       
     
 if __name__ == "__main__":
